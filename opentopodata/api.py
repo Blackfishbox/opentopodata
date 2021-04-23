@@ -163,7 +163,7 @@ def _parse_nodata_value(nodata_value):
 def _parse_locations(locations, max_n_locations):
     """Parse and validate the locations GET argument.
 
-    The "locations" argument of the query should be "lat,lon" pairs delimited
+    The "locations" argument of the query should be "lat,lon,index" pairs delimited
     by "|" characters, or a string in Google polyline format.
 
 
@@ -174,6 +174,7 @@ def _parse_locations(locations, max_n_locations):
     Returns:
         lats: List of latitude floats.
         lons: List of longitude floats.
+	indices: List of index integers
 
     Raises:
         ClientError: If too many locations are given, or if the location string can't be parsed.
@@ -203,6 +204,7 @@ def _parse_polyline_locations(locations, max_n_locations):
     Returns:
         lats: List of latitude floats.
         lons: List of longitude floats.
+	indices: List of index integers.
 
     Raises:
         ClientError: If too many locations are given, or if the location string can't be parsed.
@@ -218,9 +220,10 @@ def _parse_polyline_locations(locations, max_n_locations):
         msg = "Unable to parse locations as polyline."
         raise ClientError(msg)
 
-    # Polyline result in in list of (lat, lon) tuples.
+    # Polyline result in in list of (lat, lon, index) tuples.
     lats = [p[0] for p in latlons]
     lons = [p[1] for p in latlons]
+    indices = [p[2] for p in latlons]
 
     # Check number.
     n_locations = len(lats)
@@ -228,11 +231,11 @@ def _parse_polyline_locations(locations, max_n_locations):
         msg = f"Too many locations provided ({n_locations}), the limit is {max_n_locations}."
         raise ClientError(msg)
 
-    return lats, lons
+    return lats, lons, indices
 
 
 def _parse_latlon_locations(locations, max_n_locations):
-    """Parse and validate "lat,lon" pairs delimited by "|" characters.
+    """Parse and validate "lat,lon,index" pairs delimited by "|" characters.
 
 
     Args:
@@ -242,6 +245,7 @@ def _parse_latlon_locations(locations, max_n_locations):
     Returns:
         lats: List of latitude floats.
         lons: List of longitude floats.
+	indices: List of index integers.
 
     Raises:
         ClientError: If too many locations are given, or if the location string can't be parsed.
@@ -257,6 +261,7 @@ def _parse_latlon_locations(locations, max_n_locations):
     # Parse each location.
     lats = []
     lons = []
+    indices = []
     for i, loc in enumerate(locations):
         if "," not in loc:
             msg = f"Unable to parse location '{loc}' in position {i+1}."
@@ -264,14 +269,16 @@ def _parse_latlon_locations(locations, max_n_locations):
             raise ClientError(msg)
 
         # Separate lat & lon.
-        parts = loc.split(",", 1)
+        parts = loc.split(",", 2)
         lat = parts[0]
         lon = parts[1]
+        index = parts[2]
 
         # Cast to numeric.
         try:
             lat = float(lat)
             lon = float(lon)
+            index = int(index)
         except ValueError:
             msg = f"Unable to parse location '{loc}' in position {i+1}."
             raise ClientError(msg)
@@ -289,8 +296,9 @@ def _parse_latlon_locations(locations, max_n_locations):
 
         lats.append(lat)
         lons.append(lon)
+        indices.append(index)
 
-    return lats, lons
+    return lats, lons, indices
 
 
 def _load_datasets():
@@ -363,7 +371,7 @@ def _get_datasets(name):
 @app.route("/v1/")
 def get_help_message(methods=["GET", "OPTIONS", "HEAD"]):
     msg = "No dataset name provided."
-    msg += " Try a url like '/v1/test-dataset?locations=-10,120' to get started,"
+    msg += " Try a url like '/v1/test-dataset?locations=-10,120,0' to get started,"
     msg += " and see https://www.opentopodata.org for full documentation."
     return jsonify({"status": "INVALID_REQUEST", "error": msg}), 404
 
@@ -395,7 +403,7 @@ def get_elevation(dataset_name, methods=["GET", "OPTIONS", "HEAD"]):
         # Parse inputs.
         interpolation = _parse_interpolation(request.args.get("interpolation"))
         nodata_value = _parse_nodata_value(request.args.get("nodata_value"))
-        lats, lons = _parse_locations(
+        lats, lons, indices = _parse_locations(
             request.args.get("locations"), _load_config()["max_locations_per_request"]
         )
 
@@ -407,12 +415,12 @@ def get_elevation(dataset_name, methods=["GET", "OPTIONS", "HEAD"]):
 
         # Build response.
         results = []
-        for z, dataset_name, lat, lon in zip(elevations, dataset_names, lats, lons):
+        for z, dataset_name, lat, lon, index in zip(elevations, dataset_names, lats, lons, indices):
             results.append(
                 {
                     "elevation": z,
                     "dataset": dataset_name,
-                    "location": {"lat": lat, "lng": lon},
+                    "location": {"lat": lat, "lng": lon, "index": index},
                 }
             )
         data = {"status": "OK", "results": results}
